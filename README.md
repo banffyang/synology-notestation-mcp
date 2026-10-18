@@ -37,6 +37,24 @@ set SYNO_USERNAME=your_username
 set SYNO_PASSWORD=your_password
 ```
 
+If your DSM account has two-factor authentication enabled, also provide a
+way for the server to obtain the one-time code at login. The login flow is
+fully automatic — DSM's 2FA challenge is answered without manual steps.
+
+```bash
+set SYNO_OTP_SECRET=BASE32_TOTP_SECRET   (preferred)
+```
+
+`SYNO_OTP_SECRET` is the base32 TOTP secret behind your authenticator app's
+6-digit codes for DSM; the current code is computed locally at each login,
+so it keeps working across restarts. Fallbacks if the secret is not
+available:
+
+```bash
+set SYNO_OTP_FILE=C:\path\to\code.txt    (file containing the current code, re-read at login)
+set SYNO_OTP_CODE=123456                 (static code; expires after ~30 s, testing only)
+```
+
 ### 3. Run
 
 ```bash

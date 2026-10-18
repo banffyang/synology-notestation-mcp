@@ -13,7 +13,9 @@
  *   SYNO_IGNORE_CERT - Ignore self-signed cert errors (default: false)
  *   SYNO_USERNAME    - DSM username (required)
  *   SYNO_PASSWORD    - DSM password (required)
- *   SYNO_OTP_CODE    - OTP code for 2FA (optional)
+ *   SYNO_OTP_CODE    - static OTP code for 2FA (optional, fragile)
+ *   SYNO_OTP_SECRET  - base32 TOTP secret; current code computed at login (preferred)
+ *   SYNO_OTP_FILE    - path to a file containing the current 6-digit code
  */
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
@@ -44,6 +46,8 @@ function getConfig(): DsmConfig {
     account: username,
     password: password,
     otpCode: process.env.SYNO_OTP_CODE || undefined,
+    otpSecret: process.env.SYNO_OTP_SECRET || undefined,
+    otpFile: process.env.SYNO_OTP_FILE || undefined,
     ignoreCert: process.env.SYNO_IGNORE_CERT === "true",
   };
 }
@@ -175,13 +179,33 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "delete_note",
       description:
-        "Delete a note by ID. Undocumented API method — may fail on some DSM versions.",
+        "Delete a note by ID. By default the note is MOVED TO THE RECYCLE BIN (recoverable via restore_note or the Note Station UI). Set permanent=true only when the user explicitly asked for a permanent deletion — that bypasses the Recycle Bin and cannot be undone.",
       inputSchema: {
         type: "object",
         properties: {
           note_id: {
             type: "string",
             description: "The note ID to delete",
+          },
+          permanent: {
+            type: "boolean",
+            description:
+              "Permanently delete (bypass Recycle Bin, unrecoverable). Default: false (move to Recycle Bin).",
+          },
+        },
+        required: ["note_id"],
+      },
+    },
+    {
+      name: "restore_note",
+      description:
+        "Restore a note from the Recycle Bin back to its original notebook.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          note_id: {
+            type: "string",
+            description: "The note ID in the Recycle Bin to restore",
           },
         },
         required: ["note_id"],
@@ -420,8 +444,22 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case "delete_note": {
+        const a = args as { note_id: string; permanent?: boolean };
+        // Default: move to Recycle Bin (recoverable). permanent=true hard-deletes.
+        const result = await nsApi.deleteNote(a.note_id, a.permanent === true);
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(result, null, 2),
+            },
+          ],
+        };
+      }
+
+      case "restore_note": {
         const a = args as { note_id: string };
-        const result = await nsApi.deleteNote(a.note_id);
+        const result = await nsApi.restoreNote(a.note_id);
         return {
           content: [
             {
@@ -481,7 +519,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
 
     // If create/update/delete fails with "Unknown method" or "106", provide guidance
-    const isWriteOp = ["create_note", "update_note", "delete_note"].includes(name);
+    const isWriteOp = [
+      "create_note",
+      "update_note",
+      "delete_note",
+      "restore_note",
+    ].includes(name);
     if (isWriteOp && error.message?.includes("106")) {
       return {
         content: [

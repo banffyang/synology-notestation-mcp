@@ -149,14 +149,28 @@ export class NoteStationApi {
     if (title !== undefined) params.title = title;
     if (content !== undefined) params.content = this.markdownToHtml(content);
     if (tags !== undefined) params.tag = JSON.stringify(tags);
-    return this.client.callNoteStationPost("SYNO.NoteStation.Note", "update", params);
+    // DSM's NoteStation API uses "set" (not "update") — "update" returns 103.
+    return this.client.callNoteStationPost("SYNO.NoteStation.Note", "set", params);
   }
 
   /**
-   * Delete a note
+   * Delete a note.
+   * IMPORTANT: DSM's delete without `recycle` is a PERMANENT delete (bypasses
+   * the Recycle Bin). The web UI passes recycle=true for normal deletes, so
+   * default to the Recycle Bin here — pass permanent=true to hard-delete.
    */
-  async deleteNote(noteId: string): Promise<any> {
+  async deleteNote(noteId: string, permanent = false): Promise<any> {
     return this.client.callNoteStationPost("SYNO.NoteStation.Note", "delete", {
+      object_id: noteId,
+      recycle: permanent ? "false" : "true",
+    });
+  }
+
+  /**
+   * Restore a note from the Recycle Bin to its original notebook
+   */
+  async restoreNote(noteId: string): Promise<any> {
+    return this.client.callNoteStationPost("SYNO.NoteStation.Note", "restore", {
       object_id: noteId,
     });
   }
